@@ -1,13 +1,15 @@
 import psycopg2
 import select
+import json
 import requests
 import traceback
 from datetime import datetime
 
-
 channel_name = "channel"
 
-sql_create_fn = f"""CREATE OR REPLACE FUNCTION notify_event() RETURNS TRIGGER AS $$
+
+def create_trigger(conn, trg_name: str, table: str):
+    sql_create_fn = f"""CREATE OR REPLACE FUNCTION notify_event() RETURNS TRIGGER AS $$
   DECLARE
     record RECORD;
     payload JSON;
@@ -24,9 +26,6 @@ sql_create_fn = f"""CREATE OR REPLACE FUNCTION notify_event() RETURNS TRIGGER AS
     RETURN NULL;
   END;
 $$ LANGUAGE plpgsql;"""
-
-
-def create_trigger(conn, trg_name: str, table: str, timeout: int):
     sql_trigger = """CREATE TRIGGER {}
   AFTER INSERT ON {}
   FOR EACH ROW EXECUTE PROCEDURE notify_event();""".format(
@@ -34,22 +33,35 @@ def create_trigger(conn, trg_name: str, table: str, timeout: int):
     )
 
     curs = conn.cursor()
-    curs.execute(f"LISTEN {channel_name};")
     curs.execute(sql_create_fn)
     curs.execute(sql_trigger)
     print("execute listening")
+    conn.commit()
 
+
+def listen_trigger(conn, trg_name: str, table: str, timeout: int = 5):
+    curs = conn.cursor()
+    curs.execute(f"LISTEN {channel_name};")
     while True:
         if select.select([conn], [], [], timeout) == ([], [], []):
-            pass
+            print("TIMEOUT")
         else:
             conn.poll()
             while conn.notifies:
                 notify = conn.notifies.pop(0)
                 print(datetime.now().isoformat())
                 print("Got NOTIFY:", notify.pid, notify.channel, notify.payload)
-                r = requests.get("http://127.0.0.1:5000")
-                print("Server Request", r)
+
+                try:
+                    headers = {"Content-Type": "application/json"}
+                    r = requests.put("http://127.0.0.1:5000/position/update", headers=headers, data=notify.payload)
+                    if r.status_code == 200:
+                        print("MSG SENT", r.status_code)
+                    else:
+                        print("Request FAILED", r.status_code)
+                except Exception:
+                    traceback.print_exc()
+                    print("Server no response")
 
 
 def drop_trigger(conn, trg_name: str, table: str):
@@ -57,6 +69,7 @@ def drop_trigger(conn, trg_name: str, table: str):
     curs = conn.cursor()
     curs.execute(sql_drop)
     print("trigger dropped")
+    conn.commit()
 
 
 def main():

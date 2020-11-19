@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+    python:        
+        image: dreamwayjgs/skmob:py38
+        volumes: 
+            - .:/workspace        
+        ports: 
+            - 5000:5000
+        tty: true    
+        stdin_open: true
+        environment: 
+            - FLASK_ENV=development

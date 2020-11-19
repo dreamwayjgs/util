@@ -1,5 +1,5 @@
 import psycopg2
-from notify import drop_trigger
+from pg_trigger import drop_trigger
 
 
 def main():
